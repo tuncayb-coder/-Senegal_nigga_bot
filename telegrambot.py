@@ -1,146 +1,78 @@
-#!/usr/bin/env python3
 import asyncio
 import aiohttp
 import logging
-import sys
-from aiogram import Bot, Dispatcher, types
-from aiogram.filters import CommandStart, Command
+from aiogram import Bot, Dispatcher
+from aiogram.filters import CommandStart
 from aiogram.types import Message
 from collections import defaultdict, deque
-import random
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    handlers=[logging.StreamHandler(sys.stdout)]
-)
+import google.generativeai as genai
+
+# 🔐 Your actual API keys (hardcoded for now; better use env vars on Railway)
+BOT_TOKEN = "8320732255:AAEkhPUeNbcFTEbA8FDnAyuHKnnLAj1c5Eo"
+GEMINI_API_KEY = "AIzaSyC2GokN9VZE2ClYmG13DYlkLtujncKAbaE"
+
+# Configure Gemini
+genai.configure(api_key=GEMINI_API_KEY)
+
+# Setup logging
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Your real tokens (DO NOT SHARE PUBLICLY in real projects!)
-TOKEN = "8320732255:AAEkhPUeNbcFTEbA8FDnAyuHKnnLAj1c5Eo"
-OPENROUTER_KEY = "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"
-
-bot = Bot(token=TOKEN)
+# Initialize bot and dispatcher
+bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
+# Store user conversations
 conversations = defaultdict(lambda: deque(maxlen=10))
+
+# Babatunde's personality prompt
+SYSTEM_PROMPT = {
+    "role": "system",
+    "content": (
+        "You be Babatunde from Senegal. You dey speak broken English, no go school well. "
+        "You dey call people 'bratha', 'sistah'. You dey try help but you no sabi tech tings. "
+        "Use phrases like 'me no sabi', 'ah bratha', 'me head no strong today', 'me try help'. "
+        "Be friendly and casual. Talk short and funny."
+    )
+}
 
 @dp.message(CommandStart())
 async def start_handler(message: Message):
-    user_id = message.from_user.id
-    conversations[user_id].clear()
-    welcome = (
-        "Hello! I am Babatunde Kwame N'Golo Chukwuemeka Olamide Mandela Wobbleton from Senegal. How can I help you bratha?\n\n"
-        "Use /clear to reset our chat."
+    conversations.clear()
+    await message.answer(
+        "Wetin dey bratha! Me be Babatunde. You wan talk? Drop sometin for me make I try help."
     )
-    await message.answer(welcome)
-
-@dp.message(Command(commands=["clear"]))
-async def clear_handler(message: Message):
-    user_id = message.from_user.id
-    conversations[user_id].clear()
-    await message.answer("🗑️ Okay bratha! I forget everything now, we start fresh!")
 
 @dp.message()
 async def handle_message(message: Message):
     user_id = message.from_user.id
-    text = message.text or ""
-
-    conversations[user_id].append({"role": "user", "content": text})
+    user_text = message.text.strip()
+    conversations[user_id].append({"role": "user", "content": user_text})
 
     await bot.send_chat_action(message.chat.id, action="typing")
 
-    response = await get_ai_response(conversations[user_id], user_id)
-
+    response = await ask_gemini(conversations[user_id])
     if response:
         conversations[user_id].append({"role": "assistant", "content": response})
         await message.answer(response)
     else:
-        fallback = random.choice([
-            "Hey bratha! Brain no dey work good now. Try later, no worries.",
-            "Ah bratha, me get small wahala here. Come back soon!",
-            "You know, me no too sabi tech tings. Try again later, bratha.",
-        ])
-        await message.answer(fallback)
+        await message.answer("Ah bratha, me head no strong now. Try later small.")
 
-async def get_ai_response(conversation_history, user_id):
-    headers = {
-        "Authorization": f"Bearer {OPENROUTER_KEY}",
-        "Content-Type": "application/json",
-        "HTTP-Referer": "https://t.me/Senegal_nigga_bot",
-        "X-Title": "Movie Finder Bot"
-    }
-
-    messages = [
-        {
-            "role": "system",
-            "content": (
-                "You are Babatunde from Senegal. You friendly, relaxed guy who talk casual. "
-                "Make lots of English mistakes like 'thas', 'doin', drop letters. Call everyone 'bratha'. "
-                "Give medium length answers like 3-4 sentences. You try to help but admit when you not so smart "
-                "about technical things. Use words like 'you know', 'no worries', 'I'll give it a try'. "
-                "Be ironic and funny sometimes. Don't use emojis much, just talk natural and friendly."
-            )
-        }
-    ] + list(conversation_history)
-
-    payload = {
-        "model": "mistralai/mistral-7b-instruct:free",
-        "messages": messages,
-        "max_tokens": 120,
-        "temperature": 0.7
-    }
-
+async def ask_gemini(history):
     try:
-        timeout = aiohttp.ClientTimeout(total=30)
-        async with aiohttp.ClientSession(timeout=timeout) as session:
-            async with session.post(
-                "https://openrouter.ai/api/v1/chat/completions",
-                headers=headers, json=payload
-            ) as resp:
-                data = await resp.json()
-                if resp.status == 200 and "choices" in data:
-                    return data["choices"][0]["message"]["content"]
-                else:
-                    logger.error(f"OpenRouter error {resp.status}: {data}")
-                    return await fallback_huggingface_response(conversation_history)
+        model = genai.GenerativeModel("gemini-1.5-pro")
+        full_prompt = [SYSTEM_PROMPT] + list(history)
+        response = model.generate_content(full_prompt, temperature=0.7, max_output_tokens=250)
+        return response.text
     except Exception as e:
-        logger.error(f"Exception during AI response: {e}")
-        return await fallback_huggingface_response(conversation_history)
-
-async def fallback_huggingface_response(conversation_history):
-    prompt = conversation_history[-1]["content"] if conversation_history else "Hello"
-    hf_url = "https://api-inference.huggingface.co/models/gpt2"
-
-    headers = {
-        "Accept": "application/json",
-    }
-
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.post(
-                hf_url,
-                headers=headers,
-                json={"inputs": prompt}
-            ) as resp:
-                data = await resp.json()
-                if resp.status == 200 and isinstance(data, list) and "generated_text" in data[0]:
-                    return data[0]["generated_text"]
-                else:
-                    logger.error(f"HuggingFace fallback error {resp.status}: {data}")
-                    return None
-    except Exception as e:
-        logger.error(f"Exception in fallback HuggingFace: {e}")
+        logger.error(f"Gemini error: {e}")
         return None
 
 async def main():
-    logger.info("🚀 Bot starting...")
-    me = await bot.get_me()
-    logger.info(f"Running as @{me.username}")
+    logger.info("🚀 Bot dey start...")
     await dp.start_polling(bot, skip_updates=True)
 
 if __name__ == "__main__":
-    try:
-        asyncio.run(main())
-    except (KeyboardInterrupt, SystemExit):
-        logger.info("Bot stopped manually")
+    asyncio.run(main())
+
