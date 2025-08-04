@@ -5,11 +5,10 @@ from aiogram import Bot, Dispatcher
 from aiogram.filters import CommandStart
 from aiogram.types import Message
 from collections import defaultdict, deque
-
 import google.generativeai as genai
 
 # 🔐 Your actual API keys (hardcoded for now; better use env vars on Railway)
-BOT_TOKEN = "8320732255:AAEkhPUeNbcFTEbA8FDnAyuHKnnLAj1c5Eo"
+BOT_TOKEN = "8320732255:AAE4kkllUbYK7E2PiIJSFe_Yu4XVs4HTshM"
 GEMINI_API_KEY = "AIzaSyC2GokN9VZE2ClYmG13DYlkLtujncKAbaE"
 
 # Configure Gemini
@@ -75,4 +74,5 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
 
