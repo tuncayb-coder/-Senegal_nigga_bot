@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 # Your real tokens (DO NOT SHARE PUBLICLY in real projects!)
 TOKEN = "8320732255:AAE4kkllUbYK7E2PiIJSFe_Yu4XVs4HTshM"
-OPENROUTER_KEY = "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"
+OPENROUTER_KEY = "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"
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
